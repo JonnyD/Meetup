@@ -81,6 +81,17 @@ class Meetup
     {
         return $this->get('/2/groups', $parameters);
     }
+   /**
+    * Stub for fetching RSVPs
+    *
+    * @param array $parameters The parameters passed for this request
+    * @return mixed A json object containing response data
+    * @throws Exception if anything goes wrong
+   */
+    public function getRSVPs(array $parameters = array())
+    {
+        return $this->get('/2/rsvps', $parameters);
+    }
     /**
     * Stub for fetching photos
     *
@@ -279,10 +290,17 @@ class Meetup
         
         return array($url, $params);    
     }  
+    public function authorizeUrl(array $parameters = array())
+    {
+        return self::AUTHORIZE . '?' . http_build_query(array_merge($this->_parameters,$parameters, array('response_type'=>'code')));
+    }
    /**
     * Utility function for authorizing ourselves with meetup.  Visit this url
     * https://secure.meetup.com/meetup_api/oauth_consumers/ to learn about OATH and the 
     * consumer details required for authorized access.
+    *
+    * Sent a suppress=reg parameter to prevent someone who isn't already a Meetup user from registering.
+    * Sent set_mobile=on for a mobile-optimized authorization dialog
     *
     * @param array $parameters The parameters passed for this request
     * @note You're sent to meetup and they will either have an error or a page requiring you to authorize, they'll send
@@ -291,8 +309,7 @@ class Meetup
    */       
     public function authorize(array $parameters = array())
     {   	
-    	$location = self::AUTHORIZE . '?' . http_build_query(array_merge($this->_parameters,$parameters, array('response_type'=>'code')));
-    	header("Location: " . $location);
+        header("Location: " . $this->authorizeUrl($parameters), TRUE, 302);
     }
    /**
     * Utility function for getting an access token from meetup with the code they passed back in
@@ -311,6 +328,10 @@ class Meetup
     * Utility function for getting an refresh token from meetup to avoid authorization from expiring.  
     * Visit this url https://secure.meetup.com/meetup_api/oauth_consumers/ to learn about OATH and the 
     * consumer details required for authorized access.
+    *
+    * The API docs say: "after receiving the refreshed set of credentials, the previous set will have
+    * since been invalidated. You should discard the old values at this point". What that means is
+    * that the refresh_token is no longer valid either (contrary to e.g. Goggle OAUTH).
     *
     * @param array $parameters The parameters passed for this request
     * @throws Exception if anything goes wrong
@@ -334,7 +355,7 @@ class Meetup
     	$params = array_merge($parameters, $this->_parameters);
     	   	
     	//make sure 'sign' is included when using api key only	
-	if(in_array('key', $params) && $url!=self::ACCESS && $url!=self::AUTHORIZE)
+	if(isset($params['key']) && $url!=self::ACCESS && $url!=self::AUTHORIZE)
     	{
     		//api request (any) - include sign parameters
     		$params = array_merge( array('sign', 'true'), $params );
@@ -345,14 +366,18 @@ class Meetup
     	
     	$headers = array("Accept-Charset: utf-8");
     	
+	if( isset($params['photo-host']) )
+	{
+	        $headers[] = 'X-Meta-Photo-Host: '.$params['photo-host'];
+	}
+
     	//set options for connection
     	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
     	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-    	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 120);
-    	curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+	curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+	curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     	curl_setopt($ch, CURLOPT_HEADER, false);
-    	curl_setopt($ch, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT']);
     	
     	//either GET/POST/PUT/DELETE against api
     	if($action==self::GET || $action==self::DELETE)
@@ -443,7 +468,7 @@ class Meetup
     				$error = 'Maximum stack depth exceeded';
     				break;
     			case JSON_ERROR_STATE_MISMATCH:
-    				$error = ' Underflow or the modes mismatch';
+				$error = 'Underflow or the modes mismatch';
     				break;
     			case JSON_ERROR_CTRL_CHAR:
     				$error = 'Unexpected control character found';
